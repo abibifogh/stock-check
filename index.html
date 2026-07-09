@@ -200,20 +200,8 @@
   <div class="panel show" id="panel-check">
 
     <div class="card" id="staffCard">
-      <div class="row2">
-        <div>
-          <label class="fld" for="staffName">Your name</label>
-          <input type="text" id="staffName" placeholder="e.g. Jessica" autocomplete="off">
-        </div>
-        <div>
-          <label class="fld" for="shiftSel">Shift</label>
-          <select id="shiftSel">
-            <option>Morning</option>
-            <option>Afternoon</option>
-            <option>Evening</option>
-          </select>
-        </div>
-      </div>
+      <label class="fld" for="staffSel">Who is checking?</label>
+      <select id="staffSel"></select>
       <p class="hint">Mark every ingredient below. OK = enough stock · Low = running out · Out = finished.</p>
     </div>
 
@@ -266,6 +254,16 @@
     </div>
 
     <div class="card">
+      <label class="fld">Staff list</label>
+      <p class="hint" style="margin:0 0 10px">These names appear in the dropdown on the Stock check tab. Press ✕ to remove a name.</p>
+      <div id="staffTags"></div>
+      <div class="mini">
+        <input type="text" id="newStaffName" placeholder="Add a staff name">
+        <button id="addStaffBtn">Add</button>
+      </div>
+    </div>
+
+    <div class="card">
       <label class="fld">Ingredient list</label>
       <p class="hint" style="margin:0 0 10px">Tap a category to open it. Add or remove items any time — changes apply immediately.</p>
       <div id="ingManager"></div>
@@ -304,7 +302,8 @@ const store = {
 };
 
 let ingredients = store.get('ssc_ingredients', null) || JSON.parse(JSON.stringify(DEFAULT_INGREDIENTS));
-let settings    = store.get('ssc_settings', { biz:'', key:'' });
+let settings    = store.get('ssc_settings', { biz:'', key:'', staff:[] });
+if(!Array.isArray(settings.staff)) settings.staff = [];
 let history     = store.get('ssc_history', []);
 let statusMap   = {};   // "Category||Item" -> ok|low|out
 
@@ -325,6 +324,29 @@ document.querySelectorAll('nav.tabs button').forEach(b=>{
     window.scrollTo(0,0);
   };
 });
+
+/* ================= STAFF DROPDOWN ================= */
+function renderStaffSel(){
+  const sel = $('staffSel');
+  const current = sel.value;
+  sel.innerHTML = '';
+  if(!settings.staff.length){
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = 'No staff added yet — go to Settings';
+    sel.appendChild(o);
+  }else{
+    const p = document.createElement('option');
+    p.value = ''; p.textContent = 'Select your name…';
+    sel.appendChild(p);
+    settings.staff.forEach(n=>{
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      sel.appendChild(o);
+    });
+    if(settings.staff.includes(current)) sel.value = current;
+  }
+  updateProgress();
+}
 
 /* ================= CHECK LIST ================= */
 function renderCheckList(){
@@ -368,14 +390,14 @@ function updateProgress(){
   $('progTxt').textContent = done + ' of ' + total + ' items checked';
   $('progPct').textContent = pct + '%';
   $('progFill').style.width = pct + '%';
-  const nameOk = $('staffName').value.trim().length > 0;
+  const nameOk = $('staffSel').value !== '';
   const ready  = nameOk && done === total && total > 0;
   $('submitBtn').disabled = !ready;
   $('submitHint').textContent = ready ? 'Ready to send.' :
-    (!nameOk ? 'Enter your name and mark all items to send.' :
+    (!nameOk ? 'Select your name and mark all items to send.' :
      'Mark all items to send — ' + (total-done) + ' remaining.');
 }
-$('staffName').addEventListener('input', updateProgress);
+$('staffSel').addEventListener('change', updateProgress);
 
 /* ================= SUBMIT ================= */
 $('submitBtn').onclick = async ()=>{
@@ -383,8 +405,7 @@ $('submitBtn').onclick = async ()=>{
   btn.disabled = true; btn.textContent = 'Sending…';
 
   const now   = new Date();
-  const staff = $('staffName').value.trim();
-  const shift = $('shiftSel').value;
+  const staff = $('staffSel').value;
   const low = [], out = [];
   allItems().forEach(k=>{
     const [cat, item] = k.split('||');
@@ -393,7 +414,7 @@ $('submitBtn').onclick = async ()=>{
   });
 
   const record = {
-    ts: now.toISOString(), staff, shift,
+    ts: now.toISOString(), staff,
     total: allItems().length, low, out
   };
 
@@ -401,7 +422,7 @@ $('submitBtn').onclick = async ()=>{
   const biz = settings.biz || 'Restaurant';
   let body = 'STOCK CHECK — ' + biz + '\n';
   body += 'Date: ' + now.toLocaleString('en-GB') + '\n';
-  body += 'Staff: ' + staff + '  |  Shift: ' + shift + '\n';
+  body += 'Staff: ' + staff + '\n';
   body += 'Items checked: ' + record.total + '\n\n';
   body += out.length ? ('🔴 OUT OF STOCK (' + out.length + '):\n- ' + out.join('\n- ') + '\n\n') : '🔴 Out of stock: none\n\n';
   body += low.length ? ('🟡 RUNNING LOW (' + low.length + '):\n- ' + low.join('\n- ') + '\n') : '🟡 Running low: none\n';
@@ -414,7 +435,7 @@ $('submitBtn').onclick = async ()=>{
         headers:{'Content-Type':'application/json', 'Accept':'application/json'},
         body: JSON.stringify({
           access_key: settings.key,
-          subject: '[' + biz + '] Stock check — ' + out.length + ' out, ' + low.length + ' low (' + shift + ')',
+          subject: '[' + biz + '] Stock check — ' + out.length + ' out, ' + low.length + ' low',
           from_name: staff + ' — ' + biz + ' stock check',
           message: body
         })
@@ -444,7 +465,7 @@ $('submitBtn').onclick = async ()=>{
 
 function startNewCheck(){
   statusMap = {};
-  $('staffName').value = '';
+  $('staffSel').value = '';
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('show'));
   $('panel-check').classList.add('show');
   document.querySelectorAll('nav.tabs button').forEach(x=>x.classList.remove('active'));
@@ -472,7 +493,7 @@ function renderHistory(){
       (r.sent === false ? '<span class="pill out">email failed</span>' : '');
     card.innerHTML =
       '<div class="top"><div><div class="when">' + d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) + ' · ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + '</div>' +
-      '<div class="who">' + esc(r.staff) + ' · ' + esc(r.shift) + ' shift · ' + r.total + ' items</div></div>' +
+      '<div class="who">' + esc(r.staff) + ' · ' + r.total + ' items</div></div>' +
       '<div>' + flags + '</div></div>' +
       '<div class="detail">' +
         (r.out.length ? '<b>Out of stock:</b> ' + esc(r.out.join(', ')) + '<br>' : '') +
@@ -485,11 +506,11 @@ function renderHistory(){
 }
 
 $('exportBtn').onclick = ()=>{
-  let csv = 'Date,Time,Staff,Shift,Items checked,Out of stock,Running low,Email sent\n';
+  let csv = 'Date,Time,Staff,Items checked,Out of stock,Running low,Email sent\n';
   history.slice().reverse().forEach(r=>{
     const d = new Date(r.ts);
     const q = s => '"' + String(s).replace(/"/g,'""') + '"';
-    csv += [d.toLocaleDateString('en-GB'), d.toLocaleTimeString('en-GB'), q(r.staff), r.shift, r.total, q(r.out.join('; ')), q(r.low.join('; ')), r.sent?'yes':'no'].join(',') + '\n';
+    csv += [d.toLocaleDateString('en-GB'), d.toLocaleTimeString('en-GB'), q(r.staff), r.total, q(r.out.join('; ')), q(r.low.join('; ')), r.sent?'yes':'no'].join(',') + '\n';
   });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
@@ -507,8 +528,36 @@ $('clearHistBtn').onclick = ()=>{
 function renderSettings(){
   $('setBiz').value = settings.biz || '';
   $('setKey').value = settings.key || '';
+  renderStaffTags();
   renderIngManager();
 }
+
+function renderStaffTags(){
+  const host = $('staffTags');
+  host.innerHTML = settings.staff.length ? '' : '<p class="hint" style="margin:0 0 4px">No names yet — add your team below.</p>';
+  settings.staff.forEach(name=>{
+    const t = document.createElement('span');
+    t.className = 'tag';
+    t.innerHTML = esc(name) + ' <button title="Remove">✕</button>';
+    t.querySelector('button').onclick = ()=>{
+      settings.staff = settings.staff.filter(n=>n!==name);
+      store.set('ssc_settings', settings);
+      renderStaffTags(); renderStaffSel();
+    };
+    host.appendChild(t);
+  });
+}
+
+$('addStaffBtn').onclick = ()=>{
+  const v = $('newStaffName').value.trim();
+  if(v && !settings.staff.includes(v)){
+    settings.staff.push(v);
+    store.set('ssc_settings', settings);
+    $('newStaffName').value = '';
+    renderStaffTags(); renderStaffSel();
+  }
+};
+$('newStaffName').addEventListener('keydown', e=>{ if(e.key==='Enter') $('addStaffBtn').click(); });
 
 $('saveSettingsBtn').onclick = ()=>{
   settings.biz = $('setBiz').value.trim();
@@ -582,6 +631,7 @@ $('resetIngBtn').onclick = ()=>{
 /* ================= INIT ================= */
 $('bizName').textContent = settings.biz || 'Restaurant Stock';
 renderCheckList();
+renderStaffSel();
 </script>
 </body>
 </html>
