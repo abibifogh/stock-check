@@ -349,13 +349,26 @@
     <div class="card">
       <label class="fld" for="setBiz">Restaurant name</label>
       <input type="text" id="setBiz" placeholder="e.g. SN Bistro">
-      <div style="height:12px"></div>
-      <label class="fld" for="setKey">Web3Forms access key(s) — for email notifications</label>
-      <input type="text" id="setKey" placeholder="Paste one or more keys, separated by commas">
-      <p class="hint">Get a free key at <b>web3forms.com</b> — enter the email address where you want to receive reports, and the key is emailed to you. <b>To send reports to more than one person:</b> create one free key per email address, then paste all the keys here separated by commas. Each report is sent to every key's email.</p>
+      <div id="keyBlock">
+        <div style="height:12px"></div>
+        <label class="fld" for="setKey">Web3Forms access key(s) — for email notifications</label>
+        <input type="text" id="setKey" placeholder="Paste one or more keys, separated by commas">
+        <p class="hint">Get a free key at <b>web3forms.com</b> — enter the email address where you want to receive reports, and the key is emailed to you. <b>To send reports to more than one person:</b> create one free key per email address, then paste all the keys here separated by commas. Each report is sent to every key's email.</p>
+      </div>
       <div style="height:12px"></div>
       <button class="btn" id="saveSettingsBtn">Save settings</button>
       <p class="hint" id="settingsStatus"></p>
+    </div>
+
+    <div class="card" id="accessLevelsCard" style="display:none">
+      <label class="fld">Manager access levels</label>
+      <p class="hint" style="margin:0 0 10px">Give each manager (by their sign-in email) either <b>Full</b> access or <b>Limited</b> access. Limited managers can view the dashboard, reports and history, but cannot see or change the Web3Forms email keys or manage access levels. Emails not listed here default to Full.</p>
+      <div id="roleTags"></div>
+      <div class="mini">
+        <input type="text" id="newRoleEmail" placeholder="manager@email.com" inputmode="email">
+        <select id="newRoleLevel" style="max-width:130px"><option value="limited">Limited</option><option value="admin">Full</option></select>
+        <button id="addRoleBtn">Add</button>
+      </div>
     </div>
 
     <div class="card" id="adminAccountsCard">
@@ -381,21 +394,19 @@
     </div>
 
     <div class="card">
-      <label class="fld">Bulk import / export ingredients</label>
-      <p class="hint" style="margin:0 0 8px">Paste your whole list at once. Put a category on its own line starting with <b>#</b>, then one item per line. Add guidance after a <b>|</b> (pipe).</p>
-      <div style="background:#F3F6F2;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-family:monospace;font-size:12px;color:var(--muted);margin-bottom:10px;white-space:pre-wrap;line-height:1.5"># Proteins
-Chicken | OK = 3+ crates · Low = 1 crate
-Beef
-Eggs | OK = 2 crates
-
-# Vegetables
-Tomatoes | OK = 2 boxes · Low = half box
-Onions</div>
-      <textarea id="bulkText" placeholder="Paste your list here…" style="width:100%;min-height:150px;font-family:monospace;font-size:13px;resize:vertical"></textarea>
+      <label class="fld">Bulk import / export ingredients (CSV)</label>
+      <p class="hint" style="margin:0 0 8px">Import your whole list from a spreadsheet. Use three columns — <b>Category, Item, Guidance</b> — with a header row. Guidance is optional. Upload a <b>.csv</b> file or paste CSV text below.</p>
+      <div style="background:#F3F6F2;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-family:monospace;font-size:12px;color:var(--muted);margin-bottom:10px;white-space:pre-wrap;line-height:1.5">Category,Item,Guidance
+Proteins,Chicken,OK = 3+ crates · Low = 1 crate
+Proteins,Beef,
+Vegetables,Tomatoes,"OK = 2 boxes, Low = half box"
+Vegetables,Onions,</div>
+      <input type="file" id="bulkFile" accept=".csv,text/csv" style="font-size:13px;margin-bottom:10px">
+      <textarea id="bulkText" placeholder="…or paste CSV here (Category,Item,Guidance)" style="width:100%;min-height:130px;font-family:monospace;font-size:13px;resize:vertical"></textarea>
       <div style="height:10px"></div>
       <button class="btn" id="bulkMergeBtn">Add / merge into list</button>
-      <button class="btn ghost" id="bulkLoadBtn">Load current list into the box (to edit)</button>
-      <button class="btn danger" id="bulkReplaceBtn">Replace entire list with the box</button>
+      <button class="btn ghost" id="bulkLoadBtn">Download current list as CSV</button>
+      <button class="btn danger" id="bulkReplaceBtn">Replace entire list with the CSV</button>
       <p class="hint" id="bulkStatus"></p>
     </div>
 
@@ -493,6 +504,11 @@ Onions</div>
       <label class="fld">Manager summary report</label>
       <p class="hint" style="margin:0 0 12px">A one-tap PDF for the selected period: sales totals, procurement priorities, staff activity, and repeat alerts — ready to print or share.</p>
       <button class="btn" id="periodPdfBtn">Download period summary (PDF)</button>
+    </div>
+    <div class="card">
+      <label class="fld">Sales analysis export</label>
+      <p class="hint" style="margin:0 0 12px">Daily sales totals (cash, card, total) for the selected period — ready to chart in Excel. Great for tracking revenue trends.</p>
+      <button class="btn" id="salesCsvBtn">Download daily sales (CSV)</button>
     </div>
     <div class="card">
       <label class="fld">Raw data export</label>
@@ -722,16 +738,23 @@ function subscribeChecks(){
 
 let ingredients = store.get('ssc_ingredients', null) || JSON.parse(JSON.stringify(DEFAULT_INGREDIENTS));
 let notes       = store.get('ssc_notes', {});   // "Category||Item" -> guidance text
-let settings    = store.get('ssc_settings', { biz:'', key:'', staff:[], admins:[] });
+let settings    = store.get('ssc_settings', { biz:'', key:'', staff:[], admins:[], roles:{} });
 if(!Array.isArray(settings.staff)) settings.staff = [];
 if(!Array.isArray(settings.admins)) settings.admins = [];
+if(!settings.roles || typeof settings.roles !== 'object') settings.roles = {};
 // Migrate an old single Manager PIN into a proper manager account
 if(settings.pin && !settings.admins.length){
   settings.admins.push({ name:'Manager', pin: settings.pin });
   delete settings.pin;
   store.set('ssc_settings', settings);
 }
-let session = null;   // {name} when a manager is signed in
+let session = null;      // {name} when a manager is signed in
+let currentRole = 'admin';  // 'admin' (full) or 'limited' (no keys / no access management)
+// A manager's access level is looked up by their email; unknown = full access (so existing setups keep working)
+function roleFor(email){
+  const r = settings.roles && settings.roles[(email||'').toLowerCase()];
+  return (r === 'limited') ? 'limited' : 'admin';
+}
 let history     = store.get('ssc_history', []);
 let statusMap   = {};   // "Category||Item" -> ok|low|out
 
@@ -829,6 +852,7 @@ $('loginBtn').onclick = ()=>{
   const acct = settings.admins.find(a=>a.name === name);
   if(acct && acct.pin === pin){
     session = { name: acct.name };
+    currentRole = 'admin';
     enterAdmin();
   }else{
     const e = $('loginErr'); e.textContent = 'Incorrect PIN. Please try again.'; e.classList.add('show');
@@ -857,6 +881,7 @@ $('cloudLoginBtn').onclick = async ()=>{
     const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
     if(error) throw error;
     session = { name: data.user.email };
+    currentRole = roleFor(data.user.email);
     await enterAdmin();
   }catch(e){
     errEl.textContent = (e && e.message) ? e.message : 'Sign-in failed. Check your email and password.';
@@ -1136,16 +1161,31 @@ function analyse(days){
   const recs = periodRecords(days);
   let cash = 0, card = 0;
   const dayMap = {};                 // date -> total sales
+  const dayCash = {}, dayCard = {};  // date -> cash / card
   const staffMap = {};               // staff -> checks
   const itemMap = {};                // item -> {low, out, dates:[{d,type}]}
+  const wdTot = [0,0,0,0,0,0,0], wdCnt = [0,0,0,0,0,0,0];  // weekday sales totals + day counts
+  const wdSeen = {};                 // date -> weekday (to count each day once)
   recs.forEach(r=>{
     if(typeof r.cash === 'number'){ cash += r.cash; card += r.card; }
     const dk = dayKey(r.ts);
-    dayMap[dk] = (dayMap[dk]||0) + ((r.cash||0)+(r.card||0));
+    const amt = (r.cash||0)+(r.card||0);
+    dayMap[dk]  = (dayMap[dk]||0)  + amt;
+    dayCash[dk] = (dayCash[dk]||0) + (r.cash||0);
+    dayCard[dk] = (dayCard[dk]||0) + (r.card||0);
     staffMap[r.staff] = (staffMap[r.staff]||0) + 1;
     (r.out||[]).forEach(it=>{ (itemMap[it]=itemMap[it]||{low:0,out:0,dates:[]}); itemMap[it].out++; itemMap[it].dates.push({d:dk,type:'out'}); });
     (r.low||[]).forEach(it=>{ (itemMap[it]=itemMap[it]||{low:0,out:0,dates:[]}); itemMap[it].low++; itemMap[it].dates.push({d:dk,type:'low'}); });
   });
+  // weekday averages (per distinct day)
+  Object.keys(dayMap).forEach(dk=>{
+    const wd = new Date(dk + 'T00:00:00').getDay();
+    wdTot[wd] += dayMap[dk]; wdCnt[wd] += 1;
+  });
+  const weekdayAvg = wdTot.map((t,i)=> wdCnt[i] ? t/wdCnt[i] : 0);
+  // best day
+  let bestDay = null, bestAmt = -1;
+  Object.entries(dayMap).forEach(([d,a])=>{ if(a>bestAmt){ bestAmt=a; bestDay=d; } });
   const items = Object.entries(itemMap).map(([name,v])=>({name, ...v, score:v.out*2+v.low}))
                       .sort((a,b)=> b.out-a.out || b.low-a.low || a.name.localeCompare(b.name));
   const days_covered = Object.keys(dayMap).length;
@@ -1153,7 +1193,8 @@ function analyse(days){
     recs, cash, card, total:cash+card,
     checks:recs.length, days_covered,
     avgDay: days_covered ? (cash+card)/days_covered : 0,
-    dayMap, staffMap, items,
+    dayMap, dayCash, dayCard, staffMap, items,
+    weekdayAvg, bestDay, bestAmt: bestAmt<0?0:bestAmt,
     outOccurrences: items.reduce((s,i)=>s+i.out,0),
     lowOccurrences: items.reduce((s,i)=>s+i.low,0),
     distinctOut: items.filter(i=>i.out>0).length
@@ -1193,6 +1234,46 @@ function svgBarChart(dayMap){
   return '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">'+gl+bars+labels+'</svg>';
 }
 
+function svgStackedSales(dayCash, dayCard){
+  const keys = Object.keys(dayCash).sort();
+  if(!keys.length) return '<p class="empty-note">No sales recorded in this period.</p>';
+  const totals = keys.map(k => (dayCash[k]||0)+(dayCard[k]||0));
+  const max = Math.max(...totals, 1);
+  const W = 340, H = 150, pad = 22, slot = (W - pad) / keys.length, bw = Math.max(4, slot - 3);
+  let bars = '', labels = '';
+  keys.forEach((k,i)=>{
+    const x = pad + i * slot;
+    const ch = (dayCash[k]||0)/max * (H-30);
+    const dh = (dayCard[k]||0)/max * (H-30);
+    const baseY = H-20;
+    bars += '<rect x="'+x.toFixed(1)+'" y="'+(baseY-ch).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+ch.toFixed(1)+'" fill="var(--green)"><title>'+k+' cash: '+money(dayCash[k]||0)+'</title></rect>';
+    bars += '<rect x="'+x.toFixed(1)+'" y="'+(baseY-ch-dh).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+dh.toFixed(1)+'" fill="var(--ink)"><title>'+k+' card: '+money(dayCard[k]||0)+'</title></rect>';
+    if(i===0 || i===keys.length-1 || i===Math.floor(keys.length/2)){
+      const d = new Date(k);
+      labels += '<text x="'+(x+bw/2).toFixed(1)+'" y="'+(H-6)+'" font-size="9" fill="#8a938a" text-anchor="middle">'+d.getDate()+'/'+(d.getMonth()+1)+'</text>';
+    }
+  });
+  const gl = '<line x1="'+pad+'" y1="'+(H-20)+'" x2="'+W+'" y2="'+(H-20)+'" stroke="var(--line)"/>' +
+             '<text x="0" y="14" font-size="9" fill="#8a938a">'+shortMoney(max)+'</text>';
+  return '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">'+gl+bars+labels+'</svg>';
+}
+
+function svgWeekdayChart(weekdayAvg){
+  const names = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const max = Math.max(...weekdayAvg, 1);
+  const W = 340, H = 140, pad = 22, slot = (W - pad) / 7, bw = slot - 10;
+  let bars = '', labels = '';
+  weekdayAvg.forEach((v,i)=>{
+    const x = pad + i*slot + 3;
+    const h = v/max * (H-34);
+    bars += '<rect x="'+x.toFixed(1)+'" y="'+(H-22-h).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+h.toFixed(1)+'" rx="3" fill="var(--green)"><title>'+names[i]+': '+money(v)+' avg</title></rect>';
+    labels += '<text x="'+(x+bw/2).toFixed(1)+'" y="'+(H-8)+'" font-size="9" fill="#8a938a" text-anchor="middle">'+names[i]+'</text>';
+  });
+  const gl = '<line x1="'+pad+'" y1="'+(H-22)+'" x2="'+W+'" y2="'+(H-22)+'" stroke="var(--line)"/>' +
+             '<text x="0" y="12" font-size="9" fill="#8a938a">'+shortMoney(max)+'</text>';
+  return '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">'+gl+bars+labels+'</svg>';
+}
+
 function renderDashboard(){
   $('waWho').textContent = session ? session.name : 'Manager';
   const a = analyse(dashDays);
@@ -1217,12 +1298,30 @@ function renderDashboard(){
     '<div class="kpi"><div class="k-label">Out-of-stock hits</div><div class="k-val">'+a.outOccurrences+'</div><div class="k-sub">'+a.distinctOut+' different item(s)</div></div>' +
     '</div>';
 
-  // Sales trend
-  html += '<div class="chartcard"><h3>Daily sales</h3>'+svgBarChart(a.dayMap)+'</div>';
-
-  // Cash vs card split
+  // Sales analysis section
+  html += '<div class="sect-h">Sales analysis</div>';
   if(a.total){
-    html += '<div class="chartcard"><h3>Cash vs card</h3><div class="splitbar">' +
+    const bestLabel = a.bestDay ? new Date(a.bestDay+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) : '—';
+    const wdNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let topWd = 0; a.weekdayAvg.forEach((v,i)=>{ if(v>a.weekdayAvg[topWd]) topWd=i; });
+    html += '<div class="kpi-grid">' +
+      '<div class="kpi"><div class="k-label">Best day</div><div class="k-val">'+shortMoney(a.bestAmt)+'</div><div class="k-sub">'+bestLabel+'</div></div>' +
+      '<div class="kpi"><div class="k-label">Busiest weekday</div><div class="k-val">'+wdNames[topWd]+'</div><div class="k-sub">'+shortMoney(a.weekdayAvg[topWd])+' avg</div></div>' +
+      '</div>';
+  }
+  // Daily total sales
+  html += '<div class="chartcard"><h3>Daily sales</h3>'+svgBarChart(a.dayMap)+'</div>';
+  // Cash vs card per day (stacked)
+  if(a.total){
+    html += '<div class="chartcard"><h3>Cash vs card each day</h3>'+svgStackedSales(a.dayCash, a.dayCard) +
+      '<div class="legend"><span><i style="background:var(--green)"></i>Cash</span><span><i style="background:var(--ink)"></i>Card</span></div></div>';
+    // Average sales by weekday
+    html += '<div class="chartcard"><h3>Average sales by weekday</h3>'+svgWeekdayChart(a.weekdayAvg)+'</div>';
+  }
+
+  // Cash vs card split (overall)
+  if(a.total){
+    html += '<div class="chartcard"><h3>Cash vs card (overall)</h3><div class="splitbar">' +
       (cashPct>0?'<span style="width:'+cashPct+'%;background:var(--green)">'+(cashPct>=12?cashPct+'%':'')+'</span>':'') +
       (cardPct>0?'<span style="width:'+cardPct+'%;background:var(--ink)">'+(cardPct>=12?cardPct+'%':'')+'</span>':'') +
       '</div><div class="legend"><span><i style="background:var(--green)"></i>Cash '+money(a.cash)+'</span><span><i style="background:var(--ink)"></i>Card '+money(a.card)+'</span></div></div>';
@@ -1674,14 +1773,37 @@ function renderHistory(){
         (reps.length ? '<b style="color:var(--red)">Repeat alerts:</b> ' + esc(reps.map(x=>x.item + ' (' + x.count + '×)').join(', ')) + '<br>' : '') +
         (!r.out.length && !r.low.length ? 'Everything was in stock.<br>' : '') +
         '<button class="btn ghost pdf-one" style="margin-top:10px">Download this report as PDF</button>' +
+        '<button class="btn danger del-one" style="margin-top:8px">Delete this submission</button>' +
       '</div>';
     card.querySelector('.top').onclick = ()=>card.classList.toggle('open');
     card.querySelector('.pdf-one').onclick = (e)=>{
       e.stopPropagation();
       deliverPdf(buildPdf(r, reps), pdfFilename(r));
     };
+    card.querySelector('.del-one').onclick = (e)=>{
+      e.stopPropagation();
+      deleteCheck(r);
+    };
     host.appendChild(card);
   });
+}
+
+async function deleteCheck(rec){
+  const d = new Date(rec.ts);
+  const when = d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) + ' ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  if(!confirm('Delete the submission by ' + rec.staff + ' on ' + when + '?\nThis removes it from the shared database and from the repeat-alert counts. It cannot be undone.')) return;
+  if(CLOUD && sb && rec.id){
+    try{
+      const { error } = await sb.from('checks').delete().eq('id', rec.id);
+      if(error) throw error;
+    }catch(e){ alert('Could not delete from the database: ' + (e.message||e)); return; }
+  }
+  // Remove from local history (match by id when present, else by timestamp+staff)
+  history = history.filter(r => rec.id ? r.id !== rec.id : !(r.ts === rec.ts && r.staff === rec.staff));
+  localStorage.setItem('ssc_history', JSON.stringify(history));
+  renderHistory();
+  if($('panel-dashboard').classList.contains('show')) renderDashboard();
+  renderDbStatus();
 }
 
 $('exportBtn').onclick = ()=>{
@@ -1697,6 +1819,22 @@ $('exportBtn').onclick = ()=>{
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
   a.download = 'stock-check-history.csv';
+  a.click();
+};
+
+$('salesCsvBtn').onclick = ()=>{
+  const an = analyse(repDays);
+  const keys = Object.keys(an.dayMap).sort();
+  let csv = 'Date,Weekday,Cash (GHS),Card (GHS),Total (GHS)\n';
+  keys.forEach(k=>{
+    const d = new Date(k + 'T00:00:00');
+    const wd = d.toLocaleDateString('en-GB',{weekday:'long'});
+    csv += [k, wd, (an.dayCash[k]||0).toFixed(2), (an.dayCard[k]||0).toFixed(2), (an.dayMap[k]||0).toFixed(2)].join(',') + '\n';
+  });
+  csv += ['TOTAL','', an.cash.toFixed(2), an.card.toFixed(2), an.total.toFixed(2)].join(',') + '\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'daily-sales.csv';
   a.click();
 };
 
@@ -1718,6 +1856,12 @@ $('clearHistBtn').onclick = async ()=>{
 function renderSettings(){
   $('setBiz').value = settings.biz || '';
   $('setKey').value = settings.key || '';
+  const isAdmin = (currentRole === 'admin');
+  // Limited managers can't see or edit the email keys
+  $('keyBlock').style.display = isAdmin ? 'block' : 'none';
+  // Access-levels management is admin-only, and only meaningful in cloud mode
+  $('accessLevelsCard').style.display = (isAdmin && CLOUD) ? 'block' : 'none';
+  if(isAdmin && CLOUD) renderRoleTags();
   if(CLOUD){
     // Managers are Supabase Auth users; hide the local PIN manager UI
     $('adminTags').style.display = 'none';
@@ -1729,6 +1873,35 @@ function renderSettings(){
   renderStaffTags();
   renderIngManager();
 }
+
+function renderRoleTags(){
+  const host = $('roleTags');
+  host.innerHTML = '';
+  const entries = Object.entries(settings.roles || {});
+  if(!entries.length){ host.innerHTML = '<p class="hint" style="margin:0 0 4px">No access levels set — everyone who can sign in has Full access.</p>'; }
+  entries.forEach(([email, level])=>{
+    const t = document.createElement('span');
+    t.className = 'tag';
+    t.innerHTML = '<span class="tagname">' + esc(email) + ' · ' + (level==='limited'?'Limited':'Full') + '</span> <button title="Remove">✕</button>';
+    t.querySelector('button').onclick = ()=>{
+      delete settings.roles[email];
+      store.set('ssc_settings', settings);
+      renderRoleTags();
+    };
+    host.appendChild(t);
+  });
+}
+$('addRoleBtn').onclick = ()=>{
+  const email = $('newRoleEmail').value.trim().toLowerCase();
+  const level = $('newRoleLevel').value;
+  if(!email || email.indexOf('@') === -1){ alert('Enter the manager\u2019s sign-in email address.'); return; }
+  settings.roles[email] = (level === 'admin') ? 'admin' : 'limited';
+  store.set('ssc_settings', settings);
+  $('newRoleEmail').value = '';
+  renderRoleTags();
+  // If the currently signed-in manager just changed their own level, apply it now
+  if(session && (session.name||'').toLowerCase() === email){ currentRole = roleFor(email); renderSettings(); }
+};
 
 function renderAdminTags(){
   const host = $('adminTags');
@@ -1789,11 +1962,12 @@ $('newStaffName').addEventListener('keydown', e=>{ if(e.key==='Enter') $('addSta
 
 $('saveSettingsBtn').onclick = ()=>{
   settings.biz = $('setBiz').value.trim();
-  settings.key = $('setKey').value.trim();
+  // Only a full-access admin edits the email keys; limited managers can't overwrite them
+  if(currentRole === 'admin'){ settings.key = $('setKey').value.trim(); }
   store.set('ssc_settings', settings);
   $('bizName').textContent = settings.biz || 'Restaurant Stock';
   $('settingsStatus').textContent = 'Saved ✓'
-    + (settings.key ? '' : ' — note: no access key entered, so email reports are OFF.');
+    + (currentRole === 'admin' ? (settings.key ? '' : ' — note: no access key entered, so email reports are OFF.') : '');
 };
 
 function renderIngManager(){
@@ -1873,28 +2047,56 @@ $('resetIngBtn').onclick = ()=>{
   }
 };
 
-/* ================= BULK IMPORT / EXPORT ================= */
-function parseBulk(text){
-  const cats = []; let cur = null;
-  text.split(/\r?\n/).forEach(raw=>{
-    const line = raw.trim();
-    if(!line || line.startsWith('//')) return;
-    let cat = null;
-    if(line.startsWith('#')) cat = line.replace(/^#+/,'').trim();
-    else if(/^\[.*\]$/.test(line)) cat = line.slice(1,-1).trim();
-    if(cat !== null){
-      cur = { name: cat || 'Ingredients', items: [] }; cats.push(cur); return;
+/* ================= BULK IMPORT / EXPORT (CSV) ================= */
+// Minimal robust CSV parser: handles quoted fields, commas and quotes inside quotes.
+function parseCsv(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  text = text.replace(/^\uFEFF/, ''); // strip BOM
+  for(let i = 0; i < text.length; i++){
+    const ch = text[i], next = text[i+1];
+    if(inQuotes){
+      if(ch === '"' && next === '"'){ field += '"'; i++; }
+      else if(ch === '"'){ inQuotes = false; }
+      else field += ch;
+    }else{
+      if(ch === '"'){ inQuotes = true; }
+      else if(ch === ','){ row.push(field); field = ''; }
+      else if(ch === '\r'){ /* ignore */ }
+      else if(ch === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
+      else field += ch;
     }
-    if(!cur){ cur = { name:'Ingredients', items: [] }; cats.push(cur); }
-    const parts = line.split('|');
-    const name = parts[0].trim();
-    const guidance = parts.slice(1).join('|').trim();
-    if(name) cur.items.push({ name, guidance });
-  });
-  // merge duplicate category blocks
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+
+function parseBulk(text){
+  const rows = parseCsv(text);
+  if(!rows.length) return [];
+  // Detect header row and map columns
+  const header = rows[0].map(h => h.trim().toLowerCase());
+  let ci = 0, ii = 1, gi = 2, start = 0;
+  const findCol = (names) => header.findIndex(h => names.includes(h));
+  const cCat = findCol(['category','cat','group','section']);
+  const cItem = findCol(['item','ingredient','name','product']);
+  const cGuide = findCol(['guidance','guide','note','notes','rule']);
+  if(cCat !== -1 || cItem !== -1){
+    ci = cCat !== -1 ? cCat : 0;
+    ii = cItem !== -1 ? cItem : 1;
+    gi = cGuide !== -1 ? cGuide : 2;
+    start = 1; // skip header
+  }
   const merged = {};
-  cats.forEach(c=>{ (merged[c.name] = merged[c.name] || []).push(...c.items); });
-  return Object.entries(merged).map(([name, items])=>({ name, items }));
+  for(let r = start; r < rows.length; r++){
+    const cols = rows[r];
+    const cat = (cols[ci] || '').trim() || 'Ingredients';
+    const item = (cols[ii] || '').trim();
+    const guidance = (cols[gi] || '').trim();
+    if(!item) continue;
+    (merged[cat] = merged[cat] || []).push({ name: item, guidance });
+  }
+  return Object.entries(merged).map(([name, items]) => ({ name, items }));
 }
 
 function applyBulk(parsed, mode){
@@ -1916,27 +2118,39 @@ function applyBulk(parsed, mode){
   return { catCount, itemCount, guideCount };
 }
 
-function currentListToText(){
-  const out = [];
+const csvQuote = s => { s = String(s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+function currentListToCsv(){
+  let out = 'Category,Item,Guidance\n';
   Object.entries(ingredients).forEach(([cat, items])=>{
-    out.push('# ' + cat);
     items.forEach(it=>{
-      const g = notes[cat + '||' + it];
-      out.push(g ? (it + ' | ' + g) : it);
+      const g = notes[cat + '||' + it] || '';
+      out += csvQuote(cat) + ',' + csvQuote(it) + ',' + csvQuote(g) + '\n';
     });
-    out.push('');
   });
-  return out.join('\n').trim();
+  return out;
 }
 
+$('bulkFile').addEventListener('change', (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { $('bulkText').value = reader.result; $('bulkStatus').textContent = 'Loaded "' + file.name + '" — now press Add/merge or Replace.'; };
+  reader.onerror = () => { $('bulkStatus').textContent = 'Could not read that file.'; };
+  reader.readAsText(file);
+});
+
 $('bulkLoadBtn').onclick = ()=>{
-  $('bulkText').value = currentListToText();
-  $('bulkStatus').textContent = 'Loaded your current list into the box — edit it, then use Add/merge or Replace.';
+  const blob = new Blob([currentListToCsv()], { type:'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ingredients.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  $('bulkStatus').textContent = 'Downloaded your current list as ingredients.csv — edit it in Excel and re-import.';
 };
 
 $('bulkMergeBtn').onclick = ()=>{
   const parsed = parseBulk($('bulkText').value);
-  if(!parsed.length){ $('bulkStatus').textContent = 'Nothing to import — paste a list into the box first.'; return; }
+  if(!parsed.length){ $('bulkStatus').textContent = 'Nothing to import — upload a .csv or paste CSV first.'; return; }
   const n = parsed.reduce((s,c)=>s+c.items.length,0);
   if(!confirm('Add/merge ' + n + ' item(s) across ' + parsed.length + ' category(ies) into your existing list?')) return;
   const r = applyBulk(parsed, 'merge');
@@ -1945,7 +2159,7 @@ $('bulkMergeBtn').onclick = ()=>{
 
 $('bulkReplaceBtn').onclick = ()=>{
   const parsed = parseBulk($('bulkText').value);
-  if(!parsed.length){ $('bulkStatus').textContent = 'Nothing to import — paste a list into the box first.'; return; }
+  if(!parsed.length){ $('bulkStatus').textContent = 'Nothing to import — upload a .csv or paste CSV first.'; return; }
   const n = parsed.reduce((s,c)=>s+c.items.length,0);
   if(!confirm('REPLACE your entire ingredient list with ' + n + ' item(s) across ' + parsed.length + ' category(ies)? Your current list and its guidance will be removed.')) return;
   const r = applyBulk(parsed, 'replace');
@@ -1997,6 +2211,7 @@ async function boot(){
       const { data } = await sb.auth.getSession();
       if(data && data.session){
         session = { name: data.session.user.email };
+        currentRole = roleFor(data.session.user.email);
         applySessionUI();
         await pullHistory();
         subscribeChecks();
